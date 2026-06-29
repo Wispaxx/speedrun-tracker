@@ -73,22 +73,18 @@ def check_new_runs():
     level_name = None
     
     try:
-        # Récupérer la catégorie
         category_response = requests.get(f"https://www.speedrun.com/api/v1/categories/{category_id}", timeout=10)
         category_response.raise_for_status()
         category_data = category_response.json()["data"]
         category_name = category_data["name"]
         
-        # Si c'est une catégorie de niveau (level), on récupère aussi le nom du niveau
-        if category_data.get("type") == "per-level":
-            if level_id:
-                level_response = requests.get(f"https://www.speedrun.com/api/v1/levels/{level_id}", timeout=10)
-                level_response.raise_for_status()
-                level_name = level_response.json()["data"]["name"]
+        if category_data.get("type") == "per-level" and level_id:
+            level_response = requests.get(f"https://www.speedrun.com/api/v1/levels/{level_id}", timeout=10)
+            level_response.raise_for_status()
+            level_name = level_response.json()["data"]["name"]
     except Exception as e:
         print(f"⚠️ Erreur catégorie/niveau : {e}")
     
-    # Construire l'affichage de la catégorie
     if level_name:
         full_category = f"{level_name} - {category_name}"
     else:
@@ -104,15 +100,23 @@ def check_new_runs():
             platform_response = requests.get(f"https://www.speedrun.com/api/v1/platforms/{platform_id}", timeout=10)
             platform_response.raise_for_status()
             platform = platform_response.json()["data"]["name"]
-        else:
-            platform = "Non spécifiée"
     except Exception as e:
         print(f"⚠️ Erreur plateforme : {e}")
     print(f"🖥️ Plateforme : {platform}")
 
     # --- 4. Temps ---
     time = latest_run.get("times", {}).get("primary_t", "N/A")
-    print(f"⏱️ Temps : {time}")
+    # Formater le temps pour qu'il soit plus lisible
+    if isinstance(time, (int, float)):
+        minutes = int(time // 60)
+        seconds = int(time % 60)
+        if minutes > 0:
+            time_str = f"{minutes}m {seconds:02d}s"
+        else:
+            time_str = f"{seconds}s"
+    else:
+        time_str = str(time)
+    print(f"⏱️ Temps : {time_str}")
 
     # --- 5. Date ---
     date_raw = latest_run.get("date")
@@ -131,19 +135,17 @@ def check_new_runs():
     run_link = f"https://www.speedrun.com/{game_id}/run/{run_id}"
     print(f"🔗 Lien : {run_link}")
 
-    # --- 7. Envoyer l'embed Discord AVEC LE PING ---
+    # --- 7. Envoyer l'embed Discord SANS le ping (problème résolu) ---
     print("📨 Envoi de la notification Discord...")
     
-    # Message avec le ping du rôle (le @ devant est pour mentionner)
-    content = f"<@&{ROLE_ID}> Nouvelle run détectée !"
-    
+    # Version sans ping pour éviter l'erreur 400
     embed = {
         "title": "🚀 A pending run has been detected !",
         "color": 16776960,  # Jaune
         "fields": [
             {"name": "🏷️ Category / Level", "value": full_category, "inline": True},
             {"name": "🏃 Runner", "value": runner_name, "inline": True},
-            {"name": "⏱️ Time", "value": time, "inline": True},
+            {"name": "⏱️ Time", "value": time_str, "inline": True},
             {"name": "🖥️ Platform", "value": platform, "inline": True},
             {"name": "📅 Date", "value": date_formatted, "inline": False},
             {"name": "🔗 Link", "value": f"[Click here to view the run]({run_link})", "inline": False}
@@ -151,16 +153,14 @@ def check_new_runs():
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
     
-    payload = {
-        "content": content,  # Le message avec le ping
-        "embeds": [embed]
-    }
+    # On envoie uniquement l'embed, sans le message de ping
+    payload = {"embeds": [embed]}
 
     try:
         discord_response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
         discord_response.raise_for_status()
         if discord_response.status_code == 204:
-            print("✅ Notification avec ping envoyée avec succès !")
+            print("✅ Notification envoyée avec succès !")
         else:
             print(f"⚠️ Réponse inattendue : {discord_response.status_code}")
             print(discord_response.text)
