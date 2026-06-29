@@ -4,10 +4,9 @@ import os
 from datetime import datetime
 
 # --- CONFIGURATION ---
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "https://discord.com/api/webhooks/1521120941092900934/SzETUs_lrGuVNaLNEwzFejU_lOQr74ZZBYml1A52uW8ct9m-upyTGvqmSjjuBc7mq5kE"
-API_URL = "https://www.speedrun.com/api/v1/runs?game=m1mn0ekd&orderby=date&direction=desc&max=3"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "VOTRE_URL_DE_WEBHOOK_DISCORD_ICI"
+API_URL = "https://www.speedrun.com/api/v1/runs?game=m1mn0ekd&orderby=date&direction=desc&max=5"
 STATE_FILE = "state/last_run_id.txt"
-ROLE_ID = "1506264350606757888"  # L'ID du rôle à ping
 
 def check_new_runs():
     print("🔍 Vérification des nouvelles runs...")
@@ -26,32 +25,19 @@ def check_new_runs():
         print("📭 Aucune run trouvée.")
         return
 
+    # Prendre la run la plus récente
     latest_run = data["data"][0]
     run_id = latest_run["id"]
     print(f"🆕 Run la plus récente : {run_id}")
 
-    # Vérification du cache
-    old_id = None
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, "r") as f:
-            old_id = f.read().strip()
-        print(f"💾 Ancien ID en cache : {old_id}")
-    else:
-        print("💾 Aucun cache trouvé, première exécution.")
-
-    os.makedirs("state", exist_ok=True)
-
-    if run_id == old_id:
-        print("✅ Aucune nouvelle run détectée.")
-        return
-
-    print("🎉 NOUVELLE RUN DÉTECTÉE !")
-    with open(STATE_FILE, "w") as f:
-        f.write(run_id)
+    # --- SUPPRESSION DU CACHE : on ne vérifie plus l'ancien ID ---
+    # On envoie directement la notification pour la run la plus récente
+    print("🎉 Envoi de la notification pour la run la plus récente...")
     
+    # Extraire les détails
     print("📝 Extraction des détails...")
     
-    # --- 1. Récupérer le nom du Runner ---
+    # --- Runner ---
     runner_data = latest_run["players"][0]
     if runner_data["rel"] == "user":
         runner_id = runner_data["id"]
@@ -66,7 +52,7 @@ def check_new_runs():
         runner_name = runner_data.get("name", "Invité")
     print(f"🏃 Runner : {runner_name}")
 
-    # --- 2. Récupérer le nom de la Catégorie ---
+    # --- Catégorie ---
     category_id = latest_run["category"]
     level_id = latest_run.get("level")
     category_name = "Catégorie inconnue"
@@ -91,7 +77,7 @@ def check_new_runs():
         full_category = category_name
     print(f"🏷️ Catégorie complète : {full_category}")
 
-    # --- 3. Récupérer la plateforme ---
+    # --- Plateforme ---
     platform = "Non spécifiée"
     try:
         system = latest_run.get("system", {})
@@ -104,9 +90,8 @@ def check_new_runs():
         print(f"⚠️ Erreur plateforme : {e}")
     print(f"🖥️ Plateforme : {platform}")
 
-    # --- 4. Temps ---
+    # --- Temps ---
     time = latest_run.get("times", {}).get("primary_t", "N/A")
-    # Formater le temps pour qu'il soit plus lisible
     if isinstance(time, (int, float)):
         minutes = int(time // 60)
         seconds = int(time % 60)
@@ -118,7 +103,7 @@ def check_new_runs():
         time_str = str(time)
     print(f"⏱️ Temps : {time_str}")
 
-    # --- 5. Date ---
+    # --- Date ---
     date_raw = latest_run.get("date")
     if date_raw:
         try:
@@ -130,15 +115,14 @@ def check_new_runs():
         date_formatted = "Date inconnue"
     print(f"📅 Date : {date_formatted}")
 
-    # --- 6. Lien ---
+    # --- Lien ---
     game_id = "m1mn0ekd"
     run_link = f"https://www.speedrun.com/{game_id}/run/{run_id}"
     print(f"🔗 Lien : {run_link}")
 
-    # --- 7. Envoyer l'embed Discord SANS le ping (problème résolu) ---
+    # --- Envoyer l'embed Discord ---
     print("📨 Envoi de la notification Discord...")
     
-    # Version sans ping pour éviter l'erreur 400
     embed = {
         "title": "🚀 A pending run has been detected !",
         "color": 16776960,  # Jaune
@@ -153,7 +137,6 @@ def check_new_runs():
         "timestamp": datetime.utcnow().isoformat() + "Z"
     }
     
-    # On envoie uniquement l'embed, sans le message de ping
     payload = {"embeds": [embed]}
 
     try:
