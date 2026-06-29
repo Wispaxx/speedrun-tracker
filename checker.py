@@ -4,209 +4,168 @@ import os
 from datetime import datetime
 
 # --- CONFIGURATION ---
-# !!! NE METTEZ PAS L'URL DIRECTEMENT ICI !!!
-# Utilisez le secret GitHub à la place
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL")
-if not DISCORD_WEBHOOK_URL:
-    # Fallback pour les tests en local (à supprimer après)
-    DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1521120941092900934/SzETUs_lrGuVNaLNEwzFejU_lOQr74ZZBYml1A52uW8ct9m-upyTGvqmSjjuBc7mq5kE"
-
-API_URL = "https://www.speedrun.com/api/v1/runs?game=m1mn0ekd&status=new"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "https://discord.com/api/webhooks/1521120941092900934/SzETUs_lrGuVNaLNEwzFejU_lOQr74ZZBYml1A52uW8ct9m-upyTGvqmSjjuBc7mq5kE"
+API_URL = "https://www.speedrun.com/api/v1/runs?game=m1mn0ekd&orderby=date&direction=desc&max=3"
 STATE_FILE = "state/last_run_id.txt"
-
-def safe_get(data, *keys, default="N/A"):
-    """Récupère une valeur dans un dictionnaire imbriqué sans planter"""
-    for key in keys:
-        try:
-            data = data[key]
-        except (KeyError, TypeError, IndexError):
-            return default
-    return data if data else default
+ROLE_ID = "1506264350606757888"  # L'ID du rôle à ping
 
 def check_new_runs():
     print("🔍 Vérification des nouvelles runs...")
+    print(f"📡 URL interrogée : {API_URL}")
     
-    if not DISCORD_WEBHOOK_URL or DISCORD_WEBHOOK_URL == "VOTRE_URL_DE_WEBHOOK_DISCORD_ICI":
-        print("❌ ERREUR: L'URL du webhook Discord n'est pas configurée!")
-        print("   Ajoutez le secret DISCORD_WEBHOOK_URL dans GitHub")
-        return
-
-    # 1. Récupérer les données de l'API
     try:
         response = requests.get(API_URL, timeout=10)
         response.raise_for_status()
         data = response.json()
-    except requests.exceptions.RequestException as e:
+        print(f"✅ API répondue (statut {response.status_code})")
+    except Exception as e:
         print(f"❌ Erreur lors de la récupération des données : {e}")
         return
 
-    # Vérifier qu'il y a des runs en attente
     if not data.get("data"):
-        print("✅ Aucune run en attente (status=new) pour le moment.")
+        print("📭 Aucune run trouvée.")
         return
 
-    # Prendre la run la plus récente
     latest_run = data["data"][0]
-    run_id = latest_run.get("id")
-    if not run_id:
-        print("❌ L'ID de la run n'a pas pu être récupéré")
-        return
+    run_id = latest_run["id"]
+    print(f"🆕 Run la plus récente : {run_id}")
 
-    # 2. Vérifier si c'est une nouvelle run
-    os.makedirs("state", exist_ok=True)
-    
+    # Vérification du cache
     old_id = None
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
             old_id = f.read().strip()
+        print(f"💾 Ancien ID en cache : {old_id}")
+    else:
+        print("💾 Aucun cache trouvé, première exécution.")
+
+    os.makedirs("state", exist_ok=True)
 
     if run_id == old_id:
         print("✅ Aucune nouvelle run détectée.")
         return
 
-    # Sauvegarder le nouvel ID
+    print("🎉 NOUVELLE RUN DÉTECTÉE !")
     with open(STATE_FILE, "w") as f:
         f.write(run_id)
-
-    # 3. Extraire les informations (avec gestion d'erreur)
-    print("🎉 Nouvelle run détectée ! Préparation de l'embed...")
-
-    # --- Extraire le nom du Runner ---
-    runner_name = "Inconnu"
-    try:
-        players = latest_run.get("players", [])
-        if players:
-            player = players[0]
-            if player.get("rel") == "user":
-                runner_id = player.get("id")
-                if runner_id:
-                    try:
-                        runner_resp = requests.get(f"https://www.speedrun.com/api/v1/users/{runner_id}", timeout=10)
-                        runner_resp.raise_for_status()
-                        runner_name = runner_resp.json().get("data", {}).get("names", {}).get("international", "Inconnu")
-                    except Exception as e:
-                        print(f"⚠️ Impossible de récupérer le nom du runner: {e}")
-            else:
-                runner_name = player.get("name", "Invité")
-    except Exception as e:
-        print(f"⚠️ Erreur lors de l'extraction du runner: {e}")
-
-    # --- Extraire le nom de la Catégorie ---
-    category_name = "Catégorie inconnue"
-    try:
-        category_id = latest_run.get("category")
-        if category_id:
-            cat_resp = requests.get(f"https://www.speedrun.com/api/v1/categories/{category_id}", timeout=10)
-            cat_resp.raise_for_status()
-            category_name = cat_resp.json().get("data", {}).get("name", "Catégorie inconnue")
-    except Exception as e:
-        print(f"⚠️ Erreur lors de l'extraction de la catégorie: {e}")
-
-    # --- Extraire le Temps ---
-    time = safe_get(latest_run, "times", "primary_t", default="N/A")
-    if time and time != "N/A":
+    
+    print("📝 Extraction des détails...")
+    
+    # --- 1. Récupérer le nom du Runner ---
+    runner_data = latest_run["players"][0]
+    if runner_data["rel"] == "user":
+        runner_id = runner_data["id"]
         try:
-            # Nettoyer le temps pour l'affichage
-            if isinstance(time, (int, float)):
-                minutes = int(time // 60)
-                seconds = int(time % 60)
-                time = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
-        except:
-            pass
+            runner_response = requests.get(f"https://www.speedrun.com/api/v1/users/{runner_id}", timeout=10)
+            runner_response.raise_for_status()
+            runner_name = runner_response.json()["data"]["names"]["international"]
+        except Exception as e:
+            print(f"⚠️ Erreur runner : {e}")
+            runner_name = "Inconnu"
+    else:
+        runner_name = runner_data.get("name", "Invité")
+    print(f"🏃 Runner : {runner_name}")
 
-    # --- Extraire la Date ---
-    date_formatted = "Date inconnue"
+    # --- 2. Récupérer le nom de la Catégorie ---
+    category_id = latest_run["category"]
+    level_id = latest_run.get("level")
+    category_name = "Catégorie inconnue"
+    level_name = None
+    
     try:
-        date_raw = latest_run.get("date")
-        if date_raw:
-            if "Z" in date_raw:
-                date_raw = date_raw.replace("Z", "+00:00")
-            date_obj = datetime.fromisoformat(date_raw)
-            date_formatted = date_obj.strftime("%d/%m/%Y à %H:%M")
+        # Récupérer la catégorie
+        category_response = requests.get(f"https://www.speedrun.com/api/v1/categories/{category_id}", timeout=10)
+        category_response.raise_for_status()
+        category_data = category_response.json()["data"]
+        category_name = category_data["name"]
+        
+        # Si c'est une catégorie de niveau (level), on récupère aussi le nom du niveau
+        if category_data.get("type") == "per-level":
+            if level_id:
+                level_response = requests.get(f"https://www.speedrun.com/api/v1/levels/{level_id}", timeout=10)
+                level_response.raise_for_status()
+                level_name = level_response.json()["data"]["name"]
     except Exception as e:
-        print(f"⚠️ Erreur lors du formatage de la date: {e}")
+        print(f"⚠️ Erreur catégorie/niveau : {e}")
+    
+    # Construire l'affichage de la catégorie
+    if level_name:
+        full_category = f"{level_name} - {category_name}"
+    else:
+        full_category = category_name
+    print(f"🏷️ Catégorie complète : {full_category}")
 
-    # --- Construire le Lien ---
+    # --- 3. Récupérer la plateforme ---
+    platform = "Non spécifiée"
+    try:
+        system = latest_run.get("system", {})
+        platform_id = system.get("platform")
+        if platform_id:
+            platform_response = requests.get(f"https://www.speedrun.com/api/v1/platforms/{platform_id}", timeout=10)
+            platform_response.raise_for_status()
+            platform = platform_response.json()["data"]["name"]
+        else:
+            platform = "Non spécifiée"
+    except Exception as e:
+        print(f"⚠️ Erreur plateforme : {e}")
+    print(f"🖥️ Plateforme : {platform}")
+
+    # --- 4. Temps ---
+    time = latest_run.get("times", {}).get("primary_t", "N/A")
+    print(f"⏱️ Temps : {time}")
+
+    # --- 5. Date ---
+    date_raw = latest_run.get("date")
+    if date_raw:
+        try:
+            date_obj = datetime.fromisoformat(date_raw.replace("Z", "+00:00"))
+            date_formatted = date_obj.strftime("%d/%m/%Y à %H:%M UTC")
+        except Exception:
+            date_formatted = date_raw
+    else:
+        date_formatted = "Date inconnue"
+    print(f"📅 Date : {date_formatted}")
+
+    # --- 6. Lien ---
     game_id = "m1mn0ekd"
     run_link = f"https://www.speedrun.com/{game_id}/run/{run_id}"
+    print(f"🔗 Lien : {run_link}")
 
-    # 4. Construire l'embed (AVEC VALIDATION DES CHAMPS)
-    # Discord ne tolère pas les champs vides !
-    fields = []
+    # --- 7. Envoyer l'embed Discord AVEC LE PING ---
+    print("📨 Envoi de la notification Discord...")
     
-    # Ajouter chaque champ uniquement s'il a une valeur valide
-    if category_name and category_name != "Catégorie inconnue":
-        fields.append({"name": "🏷️ Category", "value": str(category_name)[:1000], "inline": True})
-    else:
-        fields.append({"name": "🏷️ Category", "value": "Non spécifiée", "inline": True})
+    # Message avec le ping du rôle (le @ devant est pour mentionner)
+    content = f"<@&{ROLE_ID}> Nouvelle run détectée !"
     
-    if runner_name and runner_name != "Inconnu":
-        fields.append({"name": "🏃 Runner", "value": str(runner_name)[:1000], "inline": True})
-    else:
-        fields.append({"name": "🏃 Runner", "value": "Anonyme", "inline": True})
-    
-    if time and time != "N/A":
-        fields.append({"name": "⏱️ Time", "value": str(time)[:100], "inline": True})
-    else:
-        fields.append({"name": "⏱️ Time", "value": "N/A", "inline": True})
-    
-    fields.append({"name": "📅 Date", "value": str(date_formatted)[:100], "inline": False})
-    fields.append({"name": "🔗 Link", "value": f"[Cliquez pour voir la run]({run_link})", "inline": False})
-
-    # Construction du payload avec vérification
     embed = {
         "title": "🚀 A pending run has been detected !",
-        "description": "Une nouvelle run en attente vient d'être soumise !",
         "color": 16776960,  # Jaune
-        "fields": fields,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "footer": {
-            "text": "Speedrun.com Tracker"
-        }
+        "fields": [
+            {"name": "🏷️ Category / Level", "value": full_category, "inline": True},
+            {"name": "🏃 Runner", "value": runner_name, "inline": True},
+            {"name": "⏱️ Time", "value": time, "inline": True},
+            {"name": "🖥️ Platform", "value": platform, "inline": True},
+            {"name": "📅 Date", "value": date_formatted, "inline": False},
+            {"name": "🔗 Link", "value": f"[Click here to view the run]({run_link})", "inline": False}
+        ],
+        "timestamp": datetime.utcnow().isoformat() + "Z"
     }
-
+    
     payload = {
-        "embeds": [embed],
-        # Pas de content pour éviter les doublons
+        "content": content,  # Le message avec le ping
+        "embeds": [embed]
     }
 
-    # 5. Envoyer à Discord avec gestion d'erreur détaillée
     try:
-        headers = {"Content-Type": "application/json"}
-        
-        # Validation du payload avant envoi
-        payload_json = json.dumps(payload)
-        
-        # Tester la longueur (Discord limite à 6000 caractères pour un embed)
-        if len(payload_json) > 6000:
-            print(f"⚠️ Payload trop long ({len(payload_json)} caractères), réduction...")
-            # Réduire le titre et la description
-            embed["title"] = embed["title"][:50]
-            embed["description"] = embed["description"][:50]
-            payload = {"embeds": [embed]}
-            payload_json = json.dumps(payload)
-        
-        response = requests.post(
-            DISCORD_WEBHOOK_URL,
-            data=payload_json,
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 204:
-            print("✅ Notification envoyée avec succès à Discord !")
+        discord_response = requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        discord_response.raise_for_status()
+        if discord_response.status_code == 204:
+            print("✅ Notification avec ping envoyée avec succès !")
         else:
-            print(f"❌ Erreur lors de l'envoi : {response.status_code}")
-            print(f"   Réponse de Discord : {response.text[:200]}")
-            
-            # Si l'erreur est un 400, afficher le payload pour déboguer
-            if response.status_code == 400:
-                print("\n--- Payload envoyé (pour débogage) ---")
-                print(payload_json[:500])
-                print("... (tronqué)")
-                
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Erreur lors de l'envoi à Discord : {e}")
+            print(f"⚠️ Réponse inattendue : {discord_response.status_code}")
+            print(discord_response.text)
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi : {e}")
 
 if __name__ == "__main__":
     check_new_runs()
