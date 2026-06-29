@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 
 # --- CONFIGURATION ---
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "VOTRE_URL_DE_WEBHOOK_DISCORD_ICI"
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL") or "https://discord.com/api/webhooks/1521120941092900934/SzETUs_lrGuVNaLNEwzFejU_lOQr74ZZBYml1A52uW8ct9m-upyTGvqmSjjuBc7mq5kE"
 API_URL = "https://www.speedrun.com/api/v1/runs?game=m1mn0ekd&orderby=date&direction=desc&max=5"
 STATE_FILE = "state/last_run_id.txt"
 
